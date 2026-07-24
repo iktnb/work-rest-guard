@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  build-test-publish:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore WorkRestGuard.slnx
+
+      - name: Build
+        run: dotnet build WorkRestGuard.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/WorkRestGuard.Tests/WorkRestGuard.Tests.csproj -c Release --no-build
+
+      - name: Verify formatting
+        run: dotnet format WorkRestGuard.slnx --verify-no-changes --no-restore
+
+      - name: Test single-file publish
+        shell: pwsh
+        run: |
+          dotnet publish src/WorkRestGuard/WorkRestGuard.csproj -c Release -r win-x64 --self-contained true --no-restore -o artifacts/win-x64
+          $files = Get-ChildItem artifacts/win-x64 -File
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'WorkRestGuard.exe') {
+            throw "Expected exactly one published executable. Found: $($files.Name -join ', ')"
+          }

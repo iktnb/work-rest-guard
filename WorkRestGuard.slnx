@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/WorkRestGuard/WorkRestGuard.csproj" />
+  <Project Path="tests/WorkRestGuard.Tests/WorkRestGuard.Tests.csproj" />
+  <Project Path="tests/OverlayHarness/OverlayHarness.csproj" />
+</Solution>
