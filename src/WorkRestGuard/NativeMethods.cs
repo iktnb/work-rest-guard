@@ -6,6 +6,7 @@ internal static class NativeMethods
 {
     internal static readonly nint HwndTopmost = -1;
 
+    internal const uint SwpNoZOrder = 0x0004;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpNoOwnerZOrder = 0x0200;
     internal const uint SwpAsyncWindowPos = 0x4000;

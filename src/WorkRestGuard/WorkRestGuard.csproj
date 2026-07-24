@@ -8,7 +8,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WorkRestGuard</AssemblyName>
     <RootNamespace>WorkRestGuard</RootNamespace>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Authors>Yurii Basiuk</Authors>
     <Description>A calm, firm Windows break and night-work guard for one monitor.</Description>
     <PublishSingleFile>true</PublishSingleFile>
