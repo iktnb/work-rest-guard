@@ -19,6 +19,11 @@ policies, collect telemetry, or inspect window titles and document content.
 After the first mouse or keyboard input, the 90-minute work timer begins. When
 it expires, the selected monitor is covered for 15 minutes.
 
+While the overlay is hidden, a compact non-activating timer stays in the
+top-right corner of the work monitor. It shows the remaining work time,
+finishing window, or night grace period without stealing focus. During a break
+or night block, the large overlay countdown remains visible.
+
 One finishing window can be used per cycle:
 
 - 5 minutes;
@@ -64,6 +69,9 @@ remain system-level escape routes.
 4. Use **Preview monitor** before saving.
 5. Choose whether to start Work Rest Guard with Windows.
 
+Left-click the tray icon once to open Settings. Settings remain available on
+the unprotected monitor even while the work monitor is covered.
+
 Protection-reducing changes require the appropriate day or night statement.
 Stronger settings do not.
 
@@ -91,7 +99,7 @@ Get-FileHash .\WorkRestGuard.exe -Algorithm SHA256
 gh attestation verify .\WorkRestGuard.exe -R iktnb/work-rest-guard
 ```
 
-Version 0.1.0 is not Authenticode-signed. Windows SmartScreen may warn about a
+Version 0.1.1 is not Authenticode-signed. Windows SmartScreen may warn about a
 newly downloaded executable even when its checksum and provenance are valid.
 
 ## Build and test

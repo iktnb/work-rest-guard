@@ -13,8 +13,23 @@ public sealed class GuardEngineTests
 
         Assert.Equal(GuardPhase.Working, engine.State.Phase);
         Assert.Equal(start.AddMinutes(90), engine.State.WorkDeadlineUtc);
+        Assert.Equal(start.AddMinutes(90), engine.View.DeadlineUtc);
         Assert.False(engine.View.ShowOverlay);
         Assert.Equal(start, clock.UtcNow);
+    }
+
+    [Fact]
+    public void HeartbeatPersistenceDoesNotChangeTheRenderedView()
+    {
+        var (engine, clock, _) = CreateEngine(Utc(2026, 7, 20, 8, 0));
+        engine.Initialize();
+        engine.Tick(inputChanged: true);
+        var beforeHeartbeat = engine.View;
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+        engine.Tick(inputChanged: false);
+
+        Assert.Equal(beforeHeartbeat, engine.View);
     }
 
     [Fact]

@@ -2,11 +2,13 @@ namespace WorkRestGuard;
 
 internal sealed class OverlayController : IDisposable
 {
+    private static readonly TimeSpan ReassertInterval = TimeSpan.FromSeconds(15);
     private readonly Action<int> _daySnooze;
     private readonly Action _daySkip;
     private readonly Action _nightGrace;
     private readonly Action _nightOverride;
     private GuardOverlayForm? _overlay;
+    private DateTimeOffset _nextReassertUtc;
 
     internal OverlayController(
         Action<int> daySnooze,
@@ -55,6 +57,9 @@ internal sealed class OverlayController : IDisposable
         {
             _overlay.UpdateView(view, monitor, languageCode, nowUtc);
         }
+
+        _overlay.Reassert(monitor);
+        _nextReassertUtc = nowUtc.Add(ReassertInterval);
     }
 
     internal void Tick(
@@ -68,7 +73,11 @@ internal sealed class OverlayController : IDisposable
         }
 
         _overlay.UpdateCountdown(nowUtc);
-        _overlay.Reassert(monitor);
+        if (nowUtc >= _nextReassertUtc)
+        {
+            _overlay.Reassert(monitor);
+            _nextReassertUtc = nowUtc.Add(ReassertInterval);
+        }
     }
 
     internal void SetEmergencyProgress(TimeSpan? remaining) =>
