@@ -31,6 +31,16 @@ internal static class Program
         }
 
         var now = DateTimeOffset.UtcNow;
+        if (args.Contains("--timer", StringComparer.OrdinalIgnoreCase))
+        {
+            RunTimerHarness(
+                monitor,
+                english ? "en" : "uk",
+                now,
+                durationSeconds);
+            return;
+        }
+
         var view = new GuardViewState(
             night ? GuardPhase.NightLocked : GuardPhase.DayResting,
             ShowOverlay: true,
@@ -57,6 +67,45 @@ internal static class Program
         {
             timer.Stop();
             form.AllowClose();
+        };
+        form.Shown += (_, _) => timer.Start();
+        Application.Run(form);
+    }
+
+    private static void RunTimerHarness(
+        MonitorDescriptor monitor,
+        string languageCode,
+        DateTimeOffset now,
+        int durationSeconds)
+    {
+        var view = new GuardViewState(
+            GuardPhase.Working,
+            ShowOverlay: false,
+            OverlayKind: null,
+            now.AddMinutes(90),
+            DaySnoozeAvailable: false,
+            NightGraceAvailable: false,
+            NightScheduleId: null);
+        using var form = new StatusTimerForm(
+            monitor,
+            view,
+            languageCode,
+            now,
+            targetableForTesting: true);
+        using var timer = new System.Windows.Forms.Timer
+        {
+            Interval = 250
+        };
+        var closesAt = now.AddSeconds(Math.Max(1, durationSeconds));
+        timer.Tick += (_, _) =>
+        {
+            var current = DateTimeOffset.UtcNow;
+            form.UpdateCountdown(view.DeadlineUtc, current);
+            if (current >= closesAt)
+            {
+                timer.Stop();
+                form.Close();
+            }
         };
         form.Shown += (_, _) => timer.Start();
         Application.Run(form);

@@ -33,11 +33,19 @@ public sealed class GuardEngine
         {
             var showDay = _state.Phase == GuardPhase.DayResting;
             var showNight = _state.Phase == GuardPhase.NightLocked;
+            var deadline = _state.Phase switch
+            {
+                GuardPhase.Working => _state.WorkDeadlineUtc,
+                GuardPhase.DaySnoozed or GuardPhase.DayResting => _state.DayDeadlineUtc,
+                GuardPhase.NightGrace => _state.NightGraceDeadlineUtc,
+                GuardPhase.NightLocked => _state.NightEndUtc,
+                _ => null
+            };
             return new GuardViewState(
                 _state.Phase,
                 showDay || showNight,
                 showDay ? OverlayKind.Day : showNight ? OverlayKind.Night : null,
-                showDay ? _state.DayDeadlineUtc : showNight ? _state.NightEndUtc : null,
+                deadline,
                 showDay && !_state.DaySnoozeUsed,
                 showNight && !_state.NightGraceUsed,
                 _state.NightScheduleId);

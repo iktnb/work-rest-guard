@@ -107,7 +107,9 @@ internal sealed class GuardOverlayForm : Form
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
             AutoSize = true,
-            Dock = DockStyle.Fill,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Top,
+            MinimumSize = new Size(0, 50),
             Margin = new Padding(0, 0, 0, 20)
         };
 
@@ -244,15 +246,13 @@ internal sealed class GuardOverlayForm : Form
 
     internal void UpdateCountdown(DateTimeOffset nowUtc)
     {
-        var remaining = (_view.DeadlineUtc ?? nowUtc) - nowUtc;
-        if (remaining < TimeSpan.Zero)
+        var text = CountdownFormatter.FormatRemaining(_view.DeadlineUtc, nowUtc);
+        if (string.Equals(_countdown.Text, text, StringComparison.Ordinal))
         {
-            remaining = TimeSpan.Zero;
+            return;
         }
 
-        _countdown.Text = remaining.TotalHours >= 1
-            ? $"{(int)remaining.TotalHours:00}:{remaining.Minutes:00}:{remaining.Seconds:00}"
-            : $"{remaining.Minutes:00}:{remaining.Seconds:00}";
+        _countdown.Text = text;
         _countdown.AccessibleDescription = _countdown.Text;
     }
 

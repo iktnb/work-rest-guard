@@ -14,6 +14,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
     private readonly IActivitySource _activitySource;
     private readonly GuardEngine _engine;
     private readonly OverlayController _overlayController;
+    private readonly StatusTimerController _statusTimerController;
     private readonly EmergencyHotkeyWindow _emergencyHotkey;
     private readonly EventWaitHandle _showSettingsSignal;
     private readonly Control _dispatcher;
@@ -23,6 +24,8 @@ internal sealed class GuardApplicationContext : ApplicationContext
     private GuardConfig _config;
     private SettingsForm? _settingsForm;
     private GuardPhase _lastPhase;
+    private GuardPhase _trayIconPhase;
+    private GuardViewState _lastView;
     private bool _monitorMissingNotified;
     private bool _disposed;
 
@@ -55,6 +58,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
             runtimeState,
             _clock,
             new ScheduleResolver());
+        _lastView = _engine.View;
         _engine.StateChanged += OnStateChanged;
         _engine.EventCreated += OnEventCreated;
         _lastPhase = runtimeState.Phase;
@@ -64,6 +68,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
             () => _engine.SkipDayBreak(),
             () => _engine.UseNightGrace(),
             () => _engine.OverrideNight());
+        _statusTimerController = new StatusTimerController();
 
         _dispatcher = new Control();
         _ = _dispatcher.Handle;
@@ -83,6 +88,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
             out _);
 
         _statusItem = new ToolStripMenuItem { Enabled = false };
+        _trayIconPhase = runtimeState.Phase;
         _trayIcon = new NotifyIcon
         {
             Text = AppIdentity.ProductName,
@@ -90,7 +96,13 @@ internal sealed class GuardApplicationContext : ApplicationContext
             ContextMenuStrip = BuildMenu(),
             Visible = true
         };
-        _trayIcon.DoubleClick += (_, _) => ShowSettings(openHistory: false);
+        _trayIcon.MouseClick += (_, eventArgs) =>
+        {
+            if (eventArgs.Button == MouseButtons.Left)
+            {
+                ShowSettings(openHistory: false);
+            }
+        };
 
         _timer = new System.Windows.Forms.Timer { Interval = 500 };
         _timer.Tick += (_, _) => OnTimerTick();
@@ -118,6 +130,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
     {
         _engine.RecordEmergencyExit();
         _overlayController.Hide();
+        _statusTimerController.Hide();
         ExitThread();
     }
 
@@ -158,14 +171,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
     {
         if (_showSettingsSignal.WaitOne(0))
         {
-            if (_engine.View.ShowOverlay)
-            {
-                RefreshOverlay();
-            }
-            else
-            {
-                ShowSettings(openHistory: false);
-            }
+            ShowSettings(openHistory: false);
         }
 
         if (!_options.SafeMode && _config.IsConfigured && _config.GuardEnabled)
@@ -173,20 +179,27 @@ internal sealed class GuardApplicationContext : ApplicationContext
             _engine.Tick(_activitySource.PollHasNewInput());
         }
 
-        RefreshUserInterface();
+        RefreshLiveUserInterface();
     }
 
     private void RefreshUserInterface()
     {
-        RefreshOverlay();
+        RefreshMonitorSurfaces(rebuild: true);
         RefreshTray();
     }
 
-    private void RefreshOverlay()
+    private void RefreshLiveUserInterface()
+    {
+        RefreshMonitorSurfaces(rebuild: false);
+        RefreshTray();
+    }
+
+    private void RefreshMonitorSurfaces(bool rebuild)
     {
         if (_options.SafeMode || !_config.IsConfigured || !_config.GuardEnabled)
         {
             _overlayController.Hide();
+            _statusTimerController.Hide();
             return;
         }
 
@@ -195,6 +208,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
         if (monitor is null)
         {
             _overlayController.Hide();
+            _statusTimerController.Hide();
             if (!_monitorMissingNotified)
             {
                 _monitorMissingNotified = true;
@@ -206,12 +220,25 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
         _monitorMissingNotified = false;
         var view = _engine.View;
-        _overlayController.Update(
-            view,
-            monitor,
-            _config.LanguageCode,
-            _clock.UtcNow);
-        _overlayController.Tick(view, monitor, _clock.UtcNow);
+        var now = _clock.UtcNow;
+        if (rebuild)
+        {
+            _overlayController.Update(
+                view,
+                monitor,
+                _config.LanguageCode,
+                now);
+            _statusTimerController.Update(
+                view,
+                monitor,
+                _config.LanguageCode,
+                now);
+        }
+        else
+        {
+            _overlayController.Tick(view, monitor, now);
+            _statusTimerController.Tick(view, monitor, now);
+        }
     }
 
     private void RefreshTray()
@@ -221,9 +248,13 @@ internal sealed class GuardApplicationContext : ApplicationContext
         _statusItem.Text = status;
         _trayIcon.Text = status.Length <= 63 ? status : status[..63];
 
-        var oldIcon = _trayIcon.Icon;
-        _trayIcon.Icon = TrayIconFactory.Create(state.Phase);
-        oldIcon?.Dispose();
+        if (_trayIconPhase != state.Phase)
+        {
+            var oldIcon = _trayIcon.Icon;
+            _trayIcon.Icon = TrayIconFactory.Create(state.Phase);
+            _trayIconPhase = state.Phase;
+            oldIcon?.Dispose();
+        }
     }
 
     private string FormatStatus(GuardRuntimeState state)
@@ -235,13 +266,10 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
         string Format(TextKey key, DateTimeOffset? deadline)
         {
-            var localTime = (deadline ?? _clock.UtcNow)
-                .ToLocalTime()
-                .ToString("t", UiText.Culture(_config.LanguageCode));
             return string.Format(
                 UiText.Culture(_config.LanguageCode),
                 UiText.Get(_config.LanguageCode, key),
-                localTime);
+                CountdownFormatter.FormatRemaining(deadline, _clock.UtcNow));
         }
 
         return state.Phase switch
@@ -258,6 +286,10 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
     private void OnStateChanged(GuardRuntimeState state)
     {
+        var nextView = _engine.View;
+        var viewChanged = nextView != _lastView;
+        _lastView = nextView;
+
         try
         {
             _stateStore.Save(state);
@@ -273,7 +305,14 @@ internal sealed class GuardApplicationContext : ApplicationContext
         }
 
         _lastPhase = state.Phase;
-        RefreshUserInterface();
+        if (viewChanged)
+        {
+            RefreshUserInterface();
+        }
+        else
+        {
+            RefreshLiveUserInterface();
+        }
     }
 
     private void OnEventCreated(GuardEvent guardEvent) =>
@@ -281,6 +320,12 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
     private void StartBreakNow()
     {
+        if (_options.SafeMode)
+        {
+            ShowWarning(UiText.Get(_config.LanguageCode, TextKey.SafeModeBreakBlocked));
+            return;
+        }
+
         if (_engine.StartManualBreak())
         {
             RefreshUserInterface();
@@ -289,14 +334,18 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
     private void ShowSettings(bool openHistory)
     {
-        if (_engine.View.ShowOverlay)
-        {
-            RefreshOverlay();
-            return;
-        }
-
         if (_settingsForm is not null && !_settingsForm.IsDisposed)
         {
+            if (_settingsForm.WindowState == FormWindowState.Minimized)
+            {
+                _settingsForm.WindowState = FormWindowState.Normal;
+            }
+
+            if (!_settingsForm.Visible)
+            {
+                _settingsForm.Show();
+            }
+            _settingsForm.BringToFront();
             _settingsForm.Activate();
             return;
         }
@@ -309,6 +358,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
             _historyStore,
             _clock,
             openHistory);
+        PositionSettingsOnAvailableMonitor(_settingsForm, monitors);
         var result = _settingsForm.ShowDialog();
         if (result == DialogResult.OK)
         {
@@ -318,6 +368,36 @@ internal sealed class GuardApplicationContext : ApplicationContext
         _settingsForm.Dispose();
         _settingsForm = null;
         RefreshUserInterface();
+    }
+
+    private void PositionSettingsOnAvailableMonitor(
+        Form settings,
+        IReadOnlyList<MonitorDescriptor> monitors)
+    {
+        var protectedMonitor = _monitorCatalog.Find(monitors, _config.ProtectedMonitor);
+        var available = monitors
+            .Where(monitor =>
+                protectedMonitor is null ||
+                !string.Equals(
+                    monitor.DeviceName,
+                    protectedMonitor.DeviceName,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var target = available.FirstOrDefault(monitor =>
+                monitor.WorkingArea.Contains(Cursor.Position))
+            ?? available.FirstOrDefault()
+            ?? protectedMonitor
+            ?? MonitorCatalog.ChooseDefault(monitors);
+        if (target is null)
+        {
+            return;
+        }
+
+        settings.StartPosition = FormStartPosition.Manual;
+        var area = target.WorkingArea;
+        settings.Location = new Point(
+            area.Left + Math.Max(0, (area.Width - settings.Width) / 2),
+            area.Top + Math.Max(0, (area.Height - settings.Height) / 2));
     }
 
     private void ApplySettings(GuardConfig candidate, bool startBreak)
@@ -431,6 +511,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
     protected override void ExitThreadCore()
     {
         _overlayController.Hide();
+        _statusTimerController.Hide();
         base.ExitThreadCore();
     }
 
@@ -452,6 +533,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
             _engine.StateChanged -= OnStateChanged;
             _engine.EventCreated -= OnEventCreated;
             _overlayController.Dispose();
+            _statusTimerController.Dispose();
             _emergencyHotkey.HoldProgressChanged -= OnEmergencyProgressChanged;
             _emergencyHotkey.Completed -= EmergencyExit;
             _emergencyHotkey.Dispose();
