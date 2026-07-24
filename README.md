@@ -99,7 +99,7 @@ Get-FileHash .\WorkRestGuard.exe -Algorithm SHA256
 gh attestation verify .\WorkRestGuard.exe -R iktnb/work-rest-guard
 ```
 
-Version 0.1.1 is not Authenticode-signed. Windows SmartScreen may warn about a
+Version 0.1.2 is not Authenticode-signed. Windows SmartScreen may warn about a
 newly downloaded executable even when its checksum and provenance are valid.
 
 ## Build and test

@@ -351,21 +351,27 @@ internal sealed class GuardApplicationContext : ApplicationContext
         }
 
         var monitors = _monitorCatalog.GetMonitors();
-        _settingsForm = new SettingsForm(
+        var settingsForm = new SettingsForm(
             _config,
             monitors,
             _monitorCatalog,
             _historyStore,
             _clock,
             openHistory);
-        PositionSettingsOnAvailableMonitor(_settingsForm, monitors);
-        var result = _settingsForm.ShowDialog();
+        _settingsForm = settingsForm;
+        PositionSettingsOnAvailableMonitor(settingsForm, monitors);
+        settingsForm.Shown += (_, _) =>
+            settingsForm.BeginInvoke(() =>
+                PositionSettingsOnAvailableMonitor(
+                    settingsForm,
+                    _monitorCatalog.GetMonitors()));
+        var result = settingsForm.ShowDialog();
         if (result == DialogResult.OK)
         {
-            ApplySettings(_settingsForm.ResultConfig, _settingsForm.StartBreakRequested);
+            ApplySettings(settingsForm.ResultConfig, settingsForm.StartBreakRequested);
         }
 
-        _settingsForm.Dispose();
+        settingsForm.Dispose();
         _settingsForm = null;
         RefreshUserInterface();
     }
@@ -390,14 +396,35 @@ internal sealed class GuardApplicationContext : ApplicationContext
             ?? MonitorCatalog.ChooseDefault(monitors);
         if (target is null)
         {
+            _logger.Warn("Settings window could not be assigned to a monitor");
             return;
         }
 
         settings.StartPosition = FormStartPosition.Manual;
         var area = target.WorkingArea;
-        settings.Location = new Point(
+        var location = new Point(
             area.Left + Math.Max(0, (area.Width - settings.Width) / 2),
             area.Top + Math.Max(0, (area.Height - settings.Height) / 2));
+        settings.DesktopLocation = location;
+        var moved = true;
+        if (settings.IsHandleCreated)
+        {
+            moved = NativeMethods.SetWindowPos(
+                settings.Handle,
+                0,
+                location.X,
+                location.Y,
+                settings.Width,
+                settings.Height,
+                NativeMethods.SwpNoZOrder |
+                NativeMethods.SwpNoActivate |
+                NativeMethods.SwpNoOwnerZOrder);
+        }
+
+        _logger.Info(
+            $"Settings monitor: protected={protectedMonitor?.DeviceName ?? "unresolved"}, " +
+            $"target={target.DeviceName}, requested={location.X},{location.Y}, " +
+            $"effective={settings.Left},{settings.Top}, native={moved}");
     }
 
     private void ApplySettings(GuardConfig candidate, bool startBreak)
