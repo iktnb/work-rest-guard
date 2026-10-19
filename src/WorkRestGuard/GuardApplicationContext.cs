@@ -10,6 +10,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
     private readonly AtomicJsonStore<GuardConfig> _configStore;
     private readonly AtomicJsonStore<GuardRuntimeState> _stateStore;
     private readonly HistoryStore _historyStore;
+    private readonly UsageTrackingService _usage;
     private readonly MonitorCatalog _monitorCatalog;
     private readonly IActivitySource _activitySource;
     private readonly GuardEngine _engine;
@@ -52,6 +53,8 @@ internal sealed class GuardApplicationContext : ApplicationContext
         }
 
         _config.Normalize();
+        _usage = new UsageTrackingService(new UsageStore(AppPaths.UsageDirectory), logger,
+            _config, _clock, options.SafeMode);
         var runtimeState = _stateStore.Load();
         _engine = new GuardEngine(
             _config,
@@ -120,9 +123,11 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
         RefreshUserInterface();
 
+        _usage.Capture(_engine.State.Phase);
+
         if (!_config.IsConfigured || !_options.Background || _options.SafeMode)
         {
-            ShowSettings(options.OpenHistory);
+            ShowSettings(options.OpenHistory, options.OpenStatistics);
         }
     }
 
@@ -139,6 +144,17 @@ internal sealed class GuardApplicationContext : ApplicationContext
         var language = _config.LanguageCode;
         var menu = new ContextMenuStrip();
         menu.Items.Add(_statusItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(
+            UsageText.Pick(language, "Статистика часу…", "Time statistics…"),
+            null,
+            (_, _) => ShowSettings(openHistory: false, openStatistics: true));
+        menu.Items.Add(
+            _config.UsageTrackingEnabled
+                ? UsageText.Pick(language, "Призупинити збір статистики", "Pause statistics recording")
+                : UsageText.Pick(language, "Відновити збір статистики", "Resume statistics recording"),
+            null,
+            (_, _) => ToggleUsageTracking());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(
             UiText.Get(language, TextKey.StartBreakNow),
@@ -178,6 +194,8 @@ internal sealed class GuardApplicationContext : ApplicationContext
         {
             _engine.Tick(_activitySource.PollHasNewInput());
         }
+
+        _usage.Capture(_engine.State.Phase);
 
         RefreshLiveUserInterface();
     }
@@ -332,10 +350,14 @@ internal sealed class GuardApplicationContext : ApplicationContext
         }
     }
 
-    private void ShowSettings(bool openHistory)
+    private void ShowSettings(bool openHistory, bool openStatistics = false)
     {
         if (_settingsForm is not null && !_settingsForm.IsDisposed)
         {
+            if (openStatistics)
+            {
+                _settingsForm.ShowStatistics();
+            }
             if (_settingsForm.WindowState == FormWindowState.Minimized)
             {
                 _settingsForm.WindowState = FormWindowState.Normal;
@@ -357,7 +379,9 @@ internal sealed class GuardApplicationContext : ApplicationContext
             _monitorCatalog,
             _historyStore,
             _clock,
-            openHistory);
+            openHistory,
+            _usage,
+            openStatistics);
         _settingsForm = settingsForm;
         PositionSettingsOnAvailableMonitor(settingsForm, monitors);
         settingsForm.Shown += (_, _) =>
@@ -449,16 +473,10 @@ internal sealed class GuardApplicationContext : ApplicationContext
             return;
         }
 
-        var languageChanged = !string.Equals(
-            _config.LanguageCode,
-            candidate.LanguageCode,
-            StringComparison.OrdinalIgnoreCase);
         _config = candidate;
+        _usage.ApplyConfig(candidate, _engine.State.Phase);
         _engine.ApplyConfig(candidate);
-        if (languageChanged)
-        {
-            RebuildMenu();
-        }
+        RebuildMenu();
 
         if (startBreak)
         {
@@ -474,6 +492,27 @@ internal sealed class GuardApplicationContext : ApplicationContext
             _overlayController.Hide();
             ExitThread();
         }
+    }
+
+    private void ToggleUsageTracking()
+    {
+        var candidate = _config.Clone();
+        candidate.UsageTrackingEnabled = !candidate.UsageTrackingEnabled;
+        try
+        {
+            _configStore.Save(candidate);
+        }
+        catch
+        {
+            ShowWarning(UsageText.Pick(_config.LanguageCode,
+                "Не вдалося зберегти налаштування статистики.", "Statistics settings could not be saved."));
+            return;
+        }
+
+        _config = candidate;
+        _usage.ApplyConfig(candidate, _engine.State.Phase);
+        _settingsForm?.UpdateUsageTracking(candidate.UsageTrackingEnabled);
+        RebuildMenu();
     }
 
     private void OnEmergencyProgressChanged(TimeSpan? remaining)
@@ -493,10 +532,24 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
     private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs eventArgs)
     {
+        if (eventArgs.Mode == PowerModes.Suspend)
+        {
+            // Persist before Windows suspends the message loop.
+            try
+            {
+                _dispatcher.Invoke(() => _usage.SetSuspended(true, _engine.State.Phase));
+            }
+            catch (InvalidOperationException)
+            {
+                // The application is already shutting down.
+            }
+        }
+
         if (eventArgs.Mode == PowerModes.Resume)
         {
             Dispatch(() =>
             {
+                _usage.SetSuspended(false, _engine.State.Phase);
                 _engine.Initialize();
                 RefreshUserInterface();
             });
@@ -505,13 +558,25 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
     private void OnSessionSwitch(object sender, SessionSwitchEventArgs eventArgs)
     {
+        if (eventArgs.Reason is SessionSwitchReason.SessionLock or
+            SessionSwitchReason.ConsoleDisconnect or SessionSwitchReason.RemoteDisconnect)
+        {
+            Dispatch(() => _usage.SetLocked(true, _engine.State.Phase));
+        }
+
         if (eventArgs.Reason == SessionSwitchReason.SessionUnlock)
         {
             Dispatch(() =>
             {
+                _usage.SetLocked(false, _engine.State.Phase);
                 _engine.Initialize();
                 RefreshUserInterface();
             });
+        }
+
+        else if (eventArgs.Reason is SessionSwitchReason.ConsoleConnect or SessionSwitchReason.RemoteConnect)
+        {
+            Dispatch(() => _usage.SetLocked(false, _engine.State.Phase));
         }
     }
 
@@ -537,6 +602,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _usage.Stop(_engine.State.Phase);
         _overlayController.Hide();
         _statusTimerController.Hide();
         base.ExitThreadCore();
@@ -552,6 +618,7 @@ internal sealed class GuardApplicationContext : ApplicationContext
         _disposed = true;
         if (disposing)
         {
+            _usage.Stop(_engine.State.Phase);
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             SystemEvents.SessionSwitch -= OnSessionSwitch;

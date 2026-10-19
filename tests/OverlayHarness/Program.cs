@@ -10,6 +10,17 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+        if (args.Contains("--statistics", StringComparer.OrdinalIgnoreCase))
+        {
+            StatisticsHarness.Run(args);
+            return;
+        }
+
+        if (args.Contains("--usage-probe", StringComparer.OrdinalIgnoreCase))
+        {
+            StatisticsHarness.Probe(args);
+            return;
+        }
         var night = args.Contains("--night", StringComparer.OrdinalIgnoreCase);
         var english = args.Contains("--en", StringComparer.OrdinalIgnoreCase);
         var durationSeconds = ParseDuration(args);

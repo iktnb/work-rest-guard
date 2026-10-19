@@ -3,7 +3,8 @@ namespace WorkRestGuard;
 internal sealed record LaunchOptions(
     bool Background,
     bool SafeMode,
-    bool OpenHistory)
+    bool OpenHistory,
+    bool OpenStatistics)
 {
     internal static LaunchOptions Parse(string[] args)
     {
@@ -11,6 +12,7 @@ internal sealed record LaunchOptions(
         return new LaunchOptions(
             values.Contains("--background"),
             values.Contains("--safe"),
-            values.Contains("--history"));
+            values.Contains("--history"),
+            values.Contains("--statistics"));
     }
 }

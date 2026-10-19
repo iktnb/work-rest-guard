@@ -26,6 +26,8 @@ public sealed class GuardConfig
     public string LanguageCode { get; set; } = "uk";
     public bool LaunchAtSignIn { get; set; }
     public bool GuardEnabled { get; set; } = true;
+    public bool UsageTrackingEnabled { get; set; } = true;
+    public int UsageIdleMinutes { get; set; } = 5;
 
     [JsonIgnore]
     public bool IsConfigured => ProtectedMonitor.IsConfigured;
@@ -42,7 +44,9 @@ public sealed class GuardConfig
         NightDays = [.. NightDays],
         LanguageCode = LanguageCode,
         LaunchAtSignIn = LaunchAtSignIn,
-        GuardEnabled = GuardEnabled
+        GuardEnabled = GuardEnabled,
+        UsageTrackingEnabled = UsageTrackingEnabled,
+        UsageIdleMinutes = UsageIdleMinutes
     };
 
     public void Normalize()
@@ -51,6 +55,7 @@ public sealed class GuardConfig
         NightDays ??= [];
         WorkMinutes = Math.Clamp(WorkMinutes, 15, 240);
         BreakMinutes = Math.Clamp(BreakMinutes, 5, 60);
+        UsageIdleMinutes = Math.Clamp(UsageIdleMinutes, 1, 60);
         LanguageCode = string.Equals(LanguageCode, "en", StringComparison.OrdinalIgnoreCase)
             ? "en"
             : "uk";

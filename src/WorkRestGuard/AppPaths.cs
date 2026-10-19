@@ -10,4 +10,6 @@ public static class AppPaths
     public static string StatePath { get; } = Path.Combine(DataDirectory, "state.json");
     public static string HistoryPath { get; } = Path.Combine(DataDirectory, "history.json");
     public static string LogPath { get; } = Path.Combine(DataDirectory, "logs", "guard.log");
+
+    public static string UsageDirectory { get; } = Path.Combine(DataDirectory, "usage");
 }

@@ -1,0 +1,16 @@
+slug: usage-statistics
+title: Understand daily routine and time spent in applications
+current_phase: done
+phases:
+  prd:
+    status: approved
+  arch:
+    status: approved
+  develop:
+    status: approved
+  review:
+    status: approved
+  qa:
+    status: approved
+  document:
+    status: approved

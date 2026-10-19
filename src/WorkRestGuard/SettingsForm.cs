@@ -41,6 +41,9 @@ internal sealed class SettingsForm : Form
     };
     private readonly CheckBox _startup = new() { AutoSize = true };
     private readonly CheckBox _enabled = new() { AutoSize = true };
+    private readonly CheckBox _usageEnabled = new() { AutoSize = true };
+    private readonly NumericUpDown _usageIdleMinutes = new() { Minimum = 1, Maximum = 60, Dock = DockStyle.Fill };
+    private readonly TabPage? _statisticsPage;
     private readonly DataGridView _historyGrid = new();
     private readonly ListView _eventList = new();
     private readonly Label _historyEmpty = new() { AutoSize = true };
@@ -52,7 +55,9 @@ internal sealed class SettingsForm : Form
         MonitorCatalog monitorCatalog,
         HistoryStore historyStore,
         IClock clock,
-        bool openHistory)
+        bool openHistory,
+        UsageTrackingService? usage = null,
+        bool openStatistics = false)
     {
         _current = current.Clone();
         _monitors = monitors;
@@ -94,13 +99,49 @@ internal sealed class SettingsForm : Form
 
         _tabs.TabPages.Add(settingsPage);
         _tabs.TabPages.Add(historyPage);
-        _tabs.SelectedIndex = openHistory ? 1 : 0;
+        if (usage is not null)
+        {
+            _statisticsPage = new TabPage(UsageText.Pick(_languageCode, "Статистика часу", "Time statistics"))
+            {
+                BackColor = Theme.Background,
+                ForeColor = Theme.Text
+            };
+            _statisticsPage.Controls.Add(new StatisticsControl(usage, clock, _languageCode, current.UsageIdleMinutes));
+            _tabs.TabPages.Add(_statisticsPage);
+        }
+
+        var settingsAcceptButton = AcceptButton;
+        _tabs.SelectedIndexChanged += (_, _) =>
+        {
+            AcceptButton = _tabs.SelectedIndex == 0 ? settingsAcceptButton : null;
+            if (_tabs.SelectedTab == _statisticsPage)
+            {
+                _statisticsPage?.Controls.OfType<StatisticsControl>().First().RefreshReport();
+            }
+        };
+        _tabs.SelectedIndex = openStatistics && _statisticsPage is not null ? 2 : openHistory ? 1 : 0;
+        AcceptButton = _tabs.SelectedIndex == 0 ? settingsAcceptButton : null;
         Controls.Add(_tabs);
     }
 
     internal GuardConfig ResultConfig { get; private set; }
 
     internal bool StartBreakRequested { get; private set; }
+
+    internal void UpdateUsageTracking(bool enabled)
+    {
+        _usageEnabled.Checked = enabled;
+        _statisticsPage?.Controls.OfType<StatisticsControl>().First().RefreshReport();
+    }
+
+    internal void ShowStatistics()
+    {
+        if (_statisticsPage is not null)
+        {
+            _tabs.SelectedTab = _statisticsPage;
+            _statisticsPage.Controls.OfType<StatisticsControl>().First().RefreshReport();
+        }
+    }
 
     private static DateTimePicker CreateTimePicker() => new()
     {
@@ -155,6 +196,13 @@ internal sealed class SettingsForm : Form
         _startup.Text = UiText.Get(_languageCode, TextKey.StartWithWindows);
         _enabled.Checked = _current.GuardEnabled;
         _enabled.Text = UiText.Get(_languageCode, TextKey.GuardEnabled);
+        _usageEnabled.Checked = _current.UsageTrackingEnabled;
+        _usageEnabled.Text = UsageText.Pick(_languageCode,
+            "Збирати локальну статистику часу в програмах", "Record local application usage statistics");
+        _usageEnabled.AccessibleName = _usageEnabled.Text;
+        _usageIdleMinutes.Value = _current.UsageIdleMinutes;
+        _usageIdleMinutes.AccessibleName = UsageText.Pick(_languageCode,
+            "Без вводу після, хвилин", "No input threshold, minutes");
     }
 
     private Control BuildSettingsPage()
@@ -265,6 +313,9 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(_language);
         layout.Controls.Add(_startup);
         layout.Controls.Add(_enabled);
+        layout.Controls.Add(_usageEnabled);
+        layout.Controls.Add(CreateLabel(_usageIdleMinutes.AccessibleName ?? string.Empty));
+        layout.Controls.Add(_usageIdleMinutes);
         layout.Controls.Add(actions);
 
         var scroll = new Panel
@@ -529,7 +580,9 @@ internal sealed class SettingsForm : Form
                 .ToList(),
             LanguageCode = (_language.SelectedItem as LanguageOption)?.Code ?? "uk",
             LaunchAtSignIn = _startup.Checked,
-            GuardEnabled = _enabled.Checked
+            GuardEnabled = _enabled.Checked,
+            UsageTrackingEnabled = _usageEnabled.Checked,
+            UsageIdleMinutes = (int)_usageIdleMinutes.Value
         };
         candidate.Normalize();
 

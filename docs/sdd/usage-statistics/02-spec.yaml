@@ -1,0 +1,38 @@
+spec_id: work-rest-usage-statistics-v1
+title: Daily routine and application time
+rfc_ref: 01-RFC.md
+acceptance_criteria:
+  - id: AC-1
+    description: Each observed active interval belongs to one foreground process name; idle and unknown input are separate.
+  - id: AC-2
+    description: Gaps over 15 seconds, clock discontinuities, pause and restart never become inferred application usage; explicit lock and suspend signals are respected.
+  - id: AC-3
+    description: Versioned UTC-day files merge spans, split midnight, retain 90 days, and preserve corrupted or unsupported data on failure.
+  - id: AC-4
+    description: Ranges clip intervals, use timezone-aware day boundaries, and produce consistent totals, active-only shares, night totals and gap timelines.
+  - id: AC-5
+    description: Localized statistics provide day/7/30-day filters, application ranking, daily rows, timeline, freshness, empty/error states and keyboard-accessible controls.
+  - id: AC-6
+    description: Tracking and idle settings are additive; pause is independent of protection; no titles, URLs, contents or network transmission are collected.
+  - id: AC-7
+    description: Release build, full tests, formatting, dependency audit, coverage collection, UI harness and single-file publish have recorded results.
+api_contracts: []
+event_contracts: []
+data_model_changes:
+  local_json:
+    schema_version: 1
+    path: '%LocalAppData%/WorkRestGuard/usage/yyyy-MM-dd.json'
+    retention: 90 UTC calendar days
+    fields: [startUtc, endUtc, kind, application, phase, isNightWindow]
+    migration: none; new separate store with additive configuration
+    reversible: true
+non_functional_requirements:
+  - requirement: Five-second sampling and batched 30-second persistence
+    measurement_method: Deterministic interval tests and Windows live probe
+  - requirement: No private window content or network collection
+    measurement_method: Source and persisted-schema inspection
+deployment_changes:
+  - service: work-rest-guard
+    change: local_installation_and_branch_push
+    notes: Authorized by the user on 2026-10-19 after local QA. Preserve existing data and old binary; no tag, release or main merge.
+out_of_scope: [URLs, titles, browser_tabs, contents, cloud_sync, historical_backfill, productivity_scores]

@@ -14,6 +14,55 @@ Work Rest Guard is a behavioral barrier, not a security boundary. It does not
 install a driver or service, require administrator access, change Windows
 policies, collect telemetry, or inspect window titles and document content.
 
+## Time statistics (0.2.0, pending GitHub release)
+
+The tray menu's **Time statistics** item, the new Settings tab, or
+`--statistics` opens application ranking, daily summaries and a selected-day
+timeline. Choose one day, the last seven days or the last thirty days ending on
+the selected date. Refresh updates the snapshot; the screen shows its refresh
+time and how much time was actually recorded. Duration columns are in minutes
+and sort numerically. Daily rows with no observations show a dash.
+
+While the app is running, it samples the foreground process every five seconds.
+Activity means keyboard/mouse input within a configurable threshold (five minutes
+by default). Only the foreground program gets active time, including when the
+break overlay leaves another monitor usable. Reading or watching a video without
+input can count as **No input**. This measures estimated computer activity,
+not attention, productivity, actual rest or sleep.
+
+Windows lock/disconnect and observed suspend periods are separate states. Missing
+observations, a closed app, a recording pause, or unexplained polling gaps remain
+**Unrecorded**; failed observations are **Unknown state**. Application shares use
+all observed activity as their denominator, including unattributed activity.
+Night activity uses the night schedule in effect when each sample was captured.
+Local-day reports respect the current Windows timezone and daylight-saving time;
+timeline times include UTC offsets. App/state boundaries are approximate, normally
+within one five-second sample. Delayed polls can span up to fifteen seconds;
+longer unexplained gaps are unrecorded. The idle threshold is applied when
+sampling, not retroactively.
+
+Use **Pause statistics recording** in the tray, or the recording checkbox in
+Settings. This is independent of break protection and needs no typed statement.
+Recording also works when break protection is disabled or no monitor is selected.
+`--safe` disables recording for that process. Exiting the app stops recording.
+
+Only process names, UTC interval boundaries, activity state, guard phase and a
+night-window flag are stored. No titles, URLs, browser tabs, full executable paths,
+keystrokes or document contents are collected. For example, all Chrome activity is
+grouped as `chrome.exe`; individual websites cannot be distinguished.
+
+Versioned daily files live under `%LocalAppData%\WorkRestGuard\usage` and retain
+90 UTC calendar days. Normal writes are batched every 30 seconds; pause, suspend,
+exit and Refresh also flush. A crash may lose roughly the last 30 seconds
+(more if the message loop or disk is delayed). Corrupted or
+unsupported data is preserved and an error is shown; statistics failures do not
+disable break protection. Existing guard event history remains separate and
+cannot reconstruct earlier application usage. Returning to 0.1.2 leaves usage
+files intact but stops collection until 0.2.0 runs again.
+
+This feature is available from source. A versioned GitHub release is pending;
+building the project does not replace an installed executable.
+
 ## What happens during the day
 
 After the first mouse or keyboard input, the 90-minute work timer begins. When
