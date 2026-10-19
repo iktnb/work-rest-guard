@@ -1,0 +1,32 @@
+spec_id: work-rest-gentle-reminders-v1
+title: Continuous logging and non-blocking reminders
+rfc_ref: 01-RFC.md
+acceptance_criteria:
+  - id: AC-1
+    description: Work/rest guide never produces night lock or overlay; legacy night/snooze state recovers to Ready.
+  - id: AC-2
+    description: DayResting is represented by the existing small non-activating timer with a rest message.
+  - id: AC-3
+    description: Timer visibility obeys daily local quiet hours; collection and app attribution continue during those hours.
+  - id: AC-4
+    description: Tray has no exit or recording pause; no emergency registration or typed challenge; closing Settings keeps recording.
+  - id: AC-5
+    description: Old files deserialize, old pause flags cannot stop normal collection, and maintenance exit flushes buffered data.
+  - id: AC-6
+    description: Full quality gates, native UI/runtime harness, installed runtime and authorized Git push are evidenced.
+api_contracts: []
+event_contracts: []
+data_model_changes:
+  local_json:
+    schema_version: 1
+    change: Existing night times become visual quiet hours; retired flags normalized; legacy enums retained.
+    migration: In-memory normalization and normal config save; no history/usage rewriting.
+    reversible: true
+non_functional_requirements:
+  - requirement: Recording outlives settings and reminders without stealing input focus.
+    measurement_method: Native runtime harness and persisted span verification.
+deployment_changes:
+  - service: work-rest-guard
+    change: local_installation_and_branch_push
+    notes: User authorized software changes and continued installation/launch; retain backup, startup and data.
+out_of_scope: [content_capture, watchdog, service, task_manager_restrictions, github_release, main_merge]

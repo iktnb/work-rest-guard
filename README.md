@@ -1,175 +1,121 @@
 # Work Rest Guard
 
-Work Rest Guard is a small, open-source Windows tray application that places a
-calm but firm break overlay over one selected work monitor. A second monitor
-can remain available for Obsidian or other low-intensity use.
+A small Windows tray application for local time statistics and gentle rest
+reminders. Version **0.3.0** removes screen blocking, night restrictions, typed
+challenges and the emergency exit hotkey.
 
-It combines two guardrails:
+The compact timer shows work time and **TIME TO REST** during a break reminder.
+It never covers a monitor or takes keyboard focus. Default work/rest durations
+are 90/15 minutes. The timer is hidden daily from **20:00 to 06:00** local time;
+this changes visibility only. Collection continues through the night.
 
-- a configurable work/break cycle, defaulting to **90 minutes of work and
-  15 minutes of rest**;
-- a daily night block, defaulting to **20:00–06:00**.
+## Continuous time statistics
 
-Work Rest Guard is a behavioral barrier, not a security boundary. It does not
-install a driver or service, require administrator access, change Windows
-policies, collect telemetry, or inspect window titles and document content.
+Use **Time statistics** in the tray, the Settings statistics tab, or start with
+`--statistics`. Reports show application ranking, daily summaries and a timeline
+for a selected day, seven days or thirty days. Refresh updates the snapshot and
+shows how much time was actually recorded. Durations sort numerically.
 
-## Time statistics (0.2.0, pending GitHub release)
+Normal operation always records, even when reminders are disabled, no timer
+monitor is selected, or Settings is closed. The tray has no recording pause or
+exit item. Closing Settings leaves the application in the tray. Start with
+Windows is enabled by default and can be changed in Settings.
 
-The tray menu's **Time statistics** item, the new Settings tab, or
-`--statistics` opens application ranking, daily summaries and a selected-day
-timeline. Choose one day, the last seven days or the last thirty days ending on
-the selected date. Refresh updates the snapshot; the screen shows its refresh
-time and how much time was actually recorded. Duration columns are in minutes
-and sort numerically. Daily rows with no observations show a dash.
+Every five seconds the app samples the foreground process and time since last
+keyboard/mouse input. The default idle threshold is five minutes. Only the
+foreground program receives active time. Reading or video playback without
+input can count as **No input**. These are estimates of computer activity;
+timer completion does not prove actual rest, sleep, attention or productivity.
 
-While the app is running, it samples the foreground process every five seconds.
-Activity means keyboard/mouse input within a configurable threshold (five minutes
-by default). Only the foreground program gets active time, including when the
-break overlay leaves another monitor usable. Reading or watching a video without
-input can count as **No input**. This measures estimated computer activity,
-not attention, productivity, actual rest or sleep.
+Windows lock/disconnect and observed suspend periods are separate states.
+Missing observations, a stopped app or unexplained polling gaps remain
+**Unrecorded**; failed observations are **Unknown state**. Application shares
+include unattributed activity in their denominator. Night activity means activity
+in the daily quiet hours configured at capture time. Local-day reports respect
+the Windows timezone and daylight-saving time; timeline times include UTC
+offsets. Boundaries normally have five-second precision. Delayed polls can span
+up to fifteen seconds; longer unexplained gaps remain unrecorded.
 
-Windows lock/disconnect and observed suspend periods are separate states. Missing
-observations, a closed app, a recording pause, or unexplained polling gaps remain
-**Unrecorded**; failed observations are **Unknown state**. Application shares use
-all observed activity as their denominator, including unattributed activity.
-Night activity uses the night schedule in effect when each sample was captured.
-Local-day reports respect the current Windows timezone and daylight-saving time;
-timeline times include UTC offsets. App/state boundaries are approximate, normally
-within one five-second sample. Delayed polls can span up to fifteen seconds;
-longer unexplained gaps are unrecorded. The idle threshold is applied when
-sampling, not retroactively.
+Only process names, UTC interval boundaries, activity state, reminder phase and
+a quiet-hours flag are saved. There are no window titles, URLs, browser tabs,
+full executable paths, keystroke contents or document contents. All Chrome
+usage is grouped as `chrome.exe`; websites cannot be distinguished. Nothing is
+uploaded and the application makes no network requests.
 
-Use **Pause statistics recording** in the tray, or the recording checkbox in
-Settings. This is independent of break protection and needs no typed statement.
-Recording also works when break protection is disabled or no monitor is selected.
-`--safe` disables recording for that process. Exiting the app stops recording.
+Daily versioned JSON files live in `%LocalAppData%\WorkRestGuard\usage`, retaining
+90 UTC calendar days. Writes are batched every 30 seconds. Suspend, normal
+shutdown, maintenance stop and Refresh also flush. A crash or forced termination
+may lose roughly the last 30 seconds, or more during disk/message-loop delays.
+Corrupted or unsupported files are preserved and reported. Existing 30-day event
+history stays separate; it cannot reconstruct application usage from before
+recording began.
 
-Only process names, UTC interval boundaries, activity state, guard phase and a
-night-window flag are stored. No titles, URLs, browser tabs, full executable paths,
-keystrokes or document contents are collected. For example, all Chrome activity is
-grouped as `chrome.exe`; individual websites cannot be distinguished.
+## Setup and lifecycle
 
-Versioned daily files live under `%LocalAppData%\WorkRestGuard\usage` and retain
-90 UTC calendar days. Normal writes are batched every 30 seconds; pause, suspend,
-exit and Refresh also flush. A crash may lose roughly the last 30 seconds
-(more if the message loop or disk is delayed). Corrupted or
-unsupported data is preserved and an error is shown; statistics failures do not
-disable break protection. Existing guard event history remains separate and
-cannot reconstruct earlier application usage. Returning to 0.1.2 leaves usage
-files intact but stops collection until 0.2.0 runs again.
+1. Build the source below and place `WorkRestGuard.exe` in a stable folder such
+   as `%USERPROFILE%\Apps\WorkRestGuard`.
+2. Start it, select the timer monitor and use **Preview monitor** if needed.
+3. Set reminder durations, daily timer hide/show times and the input threshold.
+4. Save. Left-click the tray icon to reopen Settings.
 
-This feature is available from source. A versioned GitHub release is pending;
-building the project does not replace an installed executable.
+The work timer begins with the first input. On expiry it shows the rest message
+for the configured break duration, then waits for new input to begin another
+cycle. **Start a break now** starts a reminder immediately. Work and reminders
+can continue during quiet hours while the timer remains hidden.
 
-## What happens during the day
+The legacy `NightModeEnabled` setting is ignored and normalized to false.
+Legacy paused-recording settings are normalized to enabled. Old night/snooze
+runtime states recover to Ready. Historical event and usage files remain readable
+without being rewritten. Older versions still enforce their old behavior if
+installed again; use a backup of configuration when deliberately rolling back.
 
-After the first mouse or keyboard input, the 90-minute work timer begins. When
-it expires, the selected monitor is covered for 15 minutes.
+`--background` starts without opening Settings. `--history` and `--statistics`
+select their respective tabs on initial launch. A second normal launch opens
+Settings in the existing process. `--safe` is a diagnostic launch with recording
+and reminders disabled for that process; it is not the normal startup mode.
 
-While the overlay is hidden, a compact non-activating timer stays in the
-top-right corner of the work monitor. It shows the remaining work time,
-finishing window, or night grace period without stealing focus. During a break
-or night block, the large overlay countdown remains visible.
-
-One finishing window can be used per cycle:
-
-- 5 minutes;
-- 15 minutes;
-- 30 minutes.
-
-When it ends, the full 15-minute break starts and the finishing buttons do not
-return. The break completes automatically. A long, exact manual statement can
-skip the current break and start a new 90-minute cycle.
-
-## What happens at night
-
-At 20:00 local Windows time, night mode takes priority and covers the work
-monitor until 06:00. One 10-minute finishing window is available per night.
-
-After that, access requires a separate night statement typed exactly by hand.
-The override applies only to that night's block; the regular 90/15 cycle starts
-again immediately.
-
-Night mode covers only the selected work monitor. It does not cover the
-secondary Obsidian monitor.
-
-## Safety and recovery
-
-- Hold **Ctrl+Alt+Shift+F11 for five seconds** for an emergency exit.
-- Start with `--safe` to open settings without enabling an overlay.
-- If the selected monitor disappears, Guard fails open and covers nothing.
-- Configuration, runtime state, and a 30-day event history are stored under
-  `%LocalAppData%\WorkRestGuard`.
-- Exact statements, clipboard contents, window titles, and Obsidian data are
-  never written to disk.
-
-The overlay does not and cannot cover the Windows secure desktop used by UAC,
-Ctrl+Alt+Delete, sign-in, or Windows Lock. Task Manager and process termination
-remain system-level escape routes.
-
-## First run
-
-1. Download `WorkRestGuard.exe` from the latest GitHub Release.
-2. Place it in a stable folder, for example
-   `%USERPROFILE%\Apps\WorkRestGuard\`.
-3. Run it and select the work monitor.
-4. Use **Preview monitor** before saving.
-5. Choose whether to start Work Rest Guard with Windows.
-
-Left-click the tray icon once to open Settings. Settings remain available on
-the unprotected monitor even while the work monitor is covered.
-
-Protection-reducing changes require the appropriate day or night statement.
-Stronger settings do not.
+For an update or uninstall, `WorkRestGuard.exe --stop-for-update` requests a
+clean maintenance stop and flushes data. It returns 2 when no compatible running
+instance exists. Wait for the existing process to exit before replacing the file.
+There is no service, watchdog or protection against Windows process termination.
+Recording resumes when the app starts again; it cannot observe a powered-off PC.
 
 ## Українською
 
-Work Rest Guard перекриває лише вибраний робочий монітор:
+Програма постійно записує локальну статистику часу у програмах. Після 90 хвилин
+роботи маленький таймер показує **ЧАС ВІДПОЧИТИ** протягом 15 хвилин. Тривалість
+можна змінити. Екран не блокується, підтверджень і аварійної комбінації немає.
+З 20:00 до 06:00 таймер прихований, але статистика продовжує збиратися.
+Закриття налаштувань залишає застосунок у треї. Автозапуск увімкнений за
+замовчуванням. Записуються назви програм і тривалість активності, без вмісту
+вікон, сайтів або натиснутих клавіш.
 
-- після 90 хвилин роботи запускає автоматичну 15-хвилинну перерву;
-- один раз дозволяє доробити 5, 15 або 30 хвилин;
-- щодня о 20:00 вмикає нічний блок до 06:00;
-- один раз за ніч дозволяє ще 10 хвилин;
-- послаблення вимагає точного ручного вводу довгого тексту;
-- лівий монітор з Obsidian залишається доступним;
-- історія за 30 днів зберігається лише локально.
+## Build and verify
 
-Аварійний вихід: утримуй **Ctrl+Alt+Shift+F11** п'ять секунд.
-
-## Verify a release
-
-Each release includes a SHA-256 checksum and GitHub build-provenance
-attestation.
-
-```powershell
-Get-FileHash .\WorkRestGuard.exe -Algorithm SHA256
-gh attestation verify .\WorkRestGuard.exe -R iktnb/work-rest-guard
-```
-
-Version 0.1.2 is not Authenticode-signed. Windows SmartScreen may warn about a
-newly downloaded executable even when its checksum and provenance are valid.
-
-## Build and test
-
-Requirements: Windows x64 and the .NET 10 SDK.
+Requirements: Windows x64 and the .NET 10 SDK. Version 0.3.0 is available from
+source; no versioned GitHub release has been published for it yet.
 
 ```powershell
 dotnet restore WorkRestGuard.slnx
 dotnet build WorkRestGuard.slnx -c Release --no-restore
 dotnet test tests\WorkRestGuard.Tests\WorkRestGuard.Tests.csproj -c Release --no-build
 dotnet format WorkRestGuard.slnx --verify-no-changes --no-restore
-dotnet publish src\WorkRestGuard\WorkRestGuard.csproj -c Release -r win-x64 --self-contained true -o artifacts\win-x64
+dotnet publish src\WorkRestGuard\WorkRestGuard.csproj -c Release -r win-x64 --self-contained true --no-restore -o artifacts\win-x64
 ```
+
+The native `tests/OverlayHarness` project previews timers, Settings and synthetic
+statistics. `--lifecycle --capture <report.json>` exercises Settings close,
+quiet hours, UI recovery and a flushing maintenance stop in an isolated profile.
+It never constructs a full-screen blocking window.
+
+Published GitHub releases include SHA-256 checksums and build-provenance
+attestations. Local development builds are not attested or Authenticode signed.
 
 ## Uninstall
 
-1. In Settings, clear **Start with Windows**. This protection-reducing change
-   requires the night statement.
-2. Exit normally, or use the emergency hotkey.
-3. Delete `WorkRestGuard.exe`.
-4. Optionally delete `%LocalAppData%\WorkRestGuard`.
+Clear **Start with Windows** in Settings, save, request the maintenance stop,
+then delete the executable. Local statistics can be preserved or deleted
+separately under `%LocalAppData%\WorkRestGuard`.
 
 ## License
 

@@ -1,0 +1,16 @@
+slug: gentle-reminders
+title: Continuous statistics with non-blocking rest reminders
+current_phase: done
+phases:
+  prd:
+    status: approved
+  arch:
+    status: approved
+  develop:
+    status: approved
+  review:
+    status: approved
+  qa:
+    status: approved
+  document:
+    status: approved

@@ -9,7 +9,8 @@ public sealed class GuardConfig
     public MonitorIdentity ProtectedMonitor { get; set; } = new();
     public int WorkMinutes { get; set; } = 90;
     public int BreakMinutes { get; set; } = 15;
-    public bool NightModeEnabled { get; set; } = true;
+    // Retained only for reading old configuration. Night blocking is retired.
+    public bool NightModeEnabled { get; set; }
     public TimeOnly NightStart { get; set; } = new(20, 0);
     public TimeOnly NightEnd { get; set; } = new(6, 0);
     public List<DayOfWeek> NightDays { get; set; } =
@@ -24,7 +25,7 @@ public sealed class GuardConfig
     ];
 
     public string LanguageCode { get; set; } = "uk";
-    public bool LaunchAtSignIn { get; set; }
+    public bool LaunchAtSignIn { get; set; } = true;
     public bool GuardEnabled { get; set; } = true;
     public bool UsageTrackingEnabled { get; set; } = true;
     public int UsageIdleMinutes { get; set; } = 5;
@@ -56,6 +57,13 @@ public sealed class GuardConfig
         WorkMinutes = Math.Clamp(WorkMinutes, 15, 240);
         BreakMinutes = Math.Clamp(BreakMinutes, 5, 60);
         UsageIdleMinutes = Math.Clamp(UsageIdleMinutes, 1, 60);
+        if (NightStart == NightEnd)
+        {
+            NightStart = new(20, 0);
+            NightEnd = new(6, 0);
+        }
+        NightModeEnabled = false;
+        UsageTrackingEnabled = true;
         LanguageCode = string.Equals(LanguageCode, "en", StringComparison.OrdinalIgnoreCase)
             ? "en"
             : "uk";
@@ -132,13 +140,6 @@ public enum GuardEventType
     EmergencyExit
 }
 
-public enum ChallengeKind
-{
-    None,
-    Day,
-    Night
-}
-
 public enum OverlayKind
 {
     Day,
@@ -182,11 +183,6 @@ public sealed record GuardEvent(
     int? SnoozeMinutes = null,
     string? NightScheduleId = null,
     bool Verified = true);
-
-public sealed record NightWindow(
-    string Id,
-    DateTimeOffset StartsAtUtc,
-    DateTimeOffset EndsAtUtc);
 
 public sealed record GuardViewState(
     GuardPhase Phase,

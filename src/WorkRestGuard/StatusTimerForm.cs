@@ -99,8 +99,7 @@ internal sealed class StatusTimerForm : Form
     {
         var (labelKey, accent) = view.Phase switch
         {
-            GuardPhase.DaySnoozed => (TextKey.TimerFinishing, Theme.DayAccent),
-            GuardPhase.NightGrace => (TextKey.TimerNightGrace, Theme.NightAccent),
+            GuardPhase.DayResting => (TextKey.TimerRest, Theme.DayAccent),
             _ => (TextKey.TimerWorking, Theme.Success)
         };
 

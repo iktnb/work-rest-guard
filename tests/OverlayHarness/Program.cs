@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text.Json;
 using WorkRestGuard;
 
 namespace OverlayHarness;
@@ -10,165 +12,129 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        if (args.Contains("--statistics", StringComparer.OrdinalIgnoreCase))
-        {
-            StatisticsHarness.Run(args);
-            return;
-        }
-
-        if (args.Contains("--usage-probe", StringComparer.OrdinalIgnoreCase))
-        {
-            StatisticsHarness.Probe(args);
-            return;
-        }
-        var night = args.Contains("--night", StringComparer.OrdinalIgnoreCase);
-        var english = args.Contains("--en", StringComparer.OrdinalIgnoreCase);
-        var durationSeconds = ParseDuration(args);
-
-        using var logger = new FileLogger(
-            Path.Combine(Path.GetTempPath(), "work-rest-guard-harness.log"));
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+        if (args.Contains("--statistics")) { StatisticsHarness.Run(args); return; }
+        if (args.Contains("--usage-probe")) { StatisticsHarness.Probe(args); return; }
+        var directory = Path.Combine(Path.GetTempPath(), "work-rest-reminder-harness", Guid.NewGuid().ToString("N"));
+        using var logger = new FileLogger(Path.Combine(directory, "guard.log"));
         var catalog = new MonitorCatalog(logger);
-        var monitor = MonitorCatalog.ChooseDefault(catalog.GetMonitors())
-            ?? throw new InvalidOperationException("No monitor is available.");
-        if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase))
-        {
-            RunSettingsHarness(
-                logger,
-                catalog,
-                monitor,
-                english ? "en" : "uk",
-                durationSeconds);
-            return;
-        }
-
+        var monitors = catalog.GetMonitors();
+        var monitor = MonitorCatalog.ChooseDefault(monitors) ?? throw new InvalidOperationException("No monitor.");
+        var config = new GuardConfig { ProtectedMonitor = MonitorIdentity.FromDescriptor(monitor), LanguageCode = args.Contains("--en") ? "en" : "uk" };
+        if (args.Contains("--lifecycle")) { RunLifecycle(args, directory, logger, config); return; }
         var now = DateTimeOffset.UtcNow;
-        if (args.Contains("--timer", StringComparer.OrdinalIgnoreCase))
-        {
-            RunTimerHarness(
-                monitor,
-                english ? "en" : "uk",
-                now,
-                durationSeconds);
-            return;
-        }
-
-        var view = new GuardViewState(
-            night ? GuardPhase.NightLocked : GuardPhase.DayResting,
-            ShowOverlay: true,
-            night ? OverlayKind.Night : OverlayKind.Day,
-            now.AddMinutes(night ? 600 : 15),
-            DaySnoozeAvailable: !night,
-            NightGraceAvailable: night,
-            NightScheduleId: night ? DateTime.Today.ToString("yyyy-MM-dd") : null);
-
-        using var form = new GuardOverlayForm(
-            monitor,
-            view,
-            english ? "en" : "uk",
-            _ => { },
-            () => { },
-            () => { },
-            () => { },
-            targetableForTesting: true);
-        using var timer = new System.Windows.Forms.Timer
-        {
-            Interval = Math.Max(1, durationSeconds) * 1000
-        };
+        using Form form = args.Contains("--settings")
+            ? new SettingsForm(config, monitors, catalog, new HistoryStore(logger, Path.Combine(directory, "history.json")), new SystemClock(), false)
+            : new StatusTimerForm(monitor, new GuardViewState(args.Contains("--rest") ? GuardPhase.DayResting : GuardPhase.Working,
+                false, null, now.AddMinutes(args.Contains("--rest") ? 15 : 90), false, false, null), config.LanguageCode, now);
+        form.ShowInTaskbar = false;
+        form.Opacity = args.Contains("--show") ? 1 : 0;
+        using var timer = new System.Windows.Forms.Timer { Interval = 350 };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            form.AllowClose();
-        };
-        form.Shown += (_, _) => timer.Start();
-        Application.Run(form);
-    }
-
-    private static void RunTimerHarness(
-        MonitorDescriptor monitor,
-        string languageCode,
-        DateTimeOffset now,
-        int durationSeconds)
-    {
-        var view = new GuardViewState(
-            GuardPhase.Working,
-            ShowOverlay: false,
-            OverlayKind: null,
-            now.AddMinutes(90),
-            DaySnoozeAvailable: false,
-            NightGraceAvailable: false,
-            NightScheduleId: null);
-        using var form = new StatusTimerForm(
-            monitor,
-            view,
-            languageCode,
-            now,
-            targetableForTesting: true);
-        using var timer = new System.Windows.Forms.Timer
-        {
-            Interval = 250
-        };
-        var closesAt = now.AddSeconds(Math.Max(1, durationSeconds));
-        timer.Tick += (_, _) =>
-        {
-            var current = DateTimeOffset.UtcNow;
-            form.UpdateCountdown(view.DeadlineUtc, current);
-            if (current >= closesAt)
+            var capture = Option(args, "--capture");
+            if (capture is not null)
             {
-                timer.Stop();
-                form.Close();
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capture))!);
+                using var bitmap = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+                bitmap.Save(capture, System.Drawing.Imaging.ImageFormat.Png);
             }
-        };
-        form.Shown += (_, _) => timer.Start();
-        Application.Run(form);
-    }
-
-    private static void RunSettingsHarness(
-        FileLogger logger,
-        MonitorCatalog catalog,
-        MonitorDescriptor monitor,
-        string languageCode,
-        int durationSeconds)
-    {
-        var config = new GuardConfig
-        {
-            ProtectedMonitor = MonitorIdentity.FromDescriptor(monitor),
-            LanguageCode = languageCode
-        };
-        var historyPath = Path.Combine(
-            Path.GetTempPath(),
-            "work-rest-guard-harness",
-            Environment.ProcessId.ToString(),
-            "history.json");
-        var historyStore = new HistoryStore(logger, historyPath);
-        using var form = new SettingsForm(
-            config,
-            catalog.GetMonitors(),
-            catalog,
-            historyStore,
-            new SystemClock(),
-            openHistory: false);
-        using var timer = new System.Windows.Forms.Timer
-        {
-            Interval = Math.Max(1, durationSeconds) * 1000
-        };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
             form.Close();
         };
         form.Shown += (_, _) => timer.Start();
         Application.Run(form);
     }
 
-    private static int ParseDuration(string[] args)
+    private static void RunLifecycle(string[] args, string directory, FileLogger logger, GuardConfig config)
     {
-        var index = Array.FindIndex(
-            args,
-            value => string.Equals(value, "--seconds", StringComparison.OrdinalIgnoreCase));
-        return index >= 0 &&
-               index + 1 < args.Length &&
-               int.TryParse(args[index + 1], out var result)
-            ? result
-            : 20;
+        // A real message loop and elapsed clock cross 20:00 while collection continues.
+        var local = DateTime.Today.AddHours(19).AddMinutes(59).AddSeconds(53);
+        var start = new DateTimeOffset(local).ToUniversalTime();
+        var clock = new ElapsedClock(start);
+        new AtomicJsonStore<GuardConfig>(Path.Combine(directory, "config.json"), logger).Save(config);
+        new AtomicJsonStore<GuardRuntimeState>(Path.Combine(directory, "state.json"), logger).Save(new()
+        {
+            Phase = GuardPhase.DayResting,
+            LastHeartbeatUtc = start,
+            DayDeadlineUtc = start.AddMinutes(15)
+        });
+        using var context = new GuardApplicationContext(new(false, false, false, false), logger, clock,
+            new FakeActivity(), directory, new FakeSource());
+        var menu = context.MenuLabels;
+        if (menu.Any(label => label.Contains("Вийти") || label.Contains("Exit") || label.Contains("Призупинити") || label.Contains("Pause")))
+            throw new InvalidOperationException("Tray must not offer exit or pause recording.");
+        var settingsClosed = false;
+        var daytimeReminder = false;
+        var quietTimeHidden = false;
+        var recovered = false;
+        using var timer = new System.Windows.Forms.Timer { Interval = 250 };
+        timer.Tick += (_, _) =>
+        {
+            var elapsed = clock.Elapsed.TotalSeconds;
+            var forms = Application.OpenForms.Cast<Form>().ToArray();
+            if (forms.Any(f => f is not SettingsForm and not StatusTimerForm))
+                throw new InvalidOperationException("Unexpected enforcement window.");
+            if (elapsed > 1 && !settingsClosed)
+            {
+                var settings = forms.OfType<SettingsForm>().Single();
+                settings.Close();
+                settingsClosed = true;
+            }
+            if (elapsed is > 2 and < 6)
+            {
+                var reminder = forms.OfType<StatusTimerForm>().SingleOrDefault();
+                daytimeReminder |= reminder is not null && reminder.Width < 600 && reminder.Height < 200;
+            }
+            if (elapsed > 8)
+            {
+                quietTimeHidden = !forms.OfType<StatusTimerForm>().Any();
+                if (!quietTimeHidden) throw new InvalidOperationException("Quiet hours must hide the compact timer.");
+                if (!recovered) { context.RecoverUiAfterError(); recovered = true; }
+            }
+            if (elapsed > 13) { timer.Stop(); context.RequestMaintenanceStop(); }
+        };
+        timer.Start();
+        Application.Run(context);
+        var spans = new UsageStore(Path.Combine(directory, "usage")).Read(start, clock.UtcNow);
+        var observed = spans.Sum(span => span.Duration.TotalSeconds);
+        if (!settingsClosed || !daytimeReminder || !quietTimeHidden || !recovered || observed < 12 || !spans.Any(s => s.IsNightWindow))
+            throw new InvalidOperationException("Lifecycle/collection verification failed.");
+        var path = Option(args, "--capture") ?? throw new ArgumentException("--capture required.");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            settingsClosed,
+            daytimeReminder,
+            quietTimeHidden,
+            recovered,
+            observedSeconds = observed,
+            nightIntervals = spans.Count(s => s.IsNightWindow),
+            maintenanceFlush = true,
+            menu,
+            isolatedSyntheticData = true
+        }));
+    }
+
+    private static string? Option(string[] args, string option)
+    {
+        var index = Array.IndexOf(args, option);
+        return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+    private sealed class ElapsedClock(DateTimeOffset start) : IClock
+    {
+        private readonly Stopwatch _elapsed = Stopwatch.StartNew();
+        internal TimeSpan Elapsed => _elapsed.Elapsed;
+        public DateTimeOffset UtcNow => start.Add(_elapsed.Elapsed);
+    }
+    private sealed class FakeActivity : IActivitySource
+    {
+        public bool PollHasNewInput() => true;
+        public void ResetBaseline() { }
+    }
+    private sealed class FakeSource : IUsageSource
+    {
+        public UsageSnapshot Capture(int idleMinutes) => new(UsageKind.Active, "synthetic.exe");
     }
 }

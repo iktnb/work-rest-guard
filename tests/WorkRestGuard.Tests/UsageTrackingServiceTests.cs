@@ -9,25 +9,42 @@ public sealed class UsageTrackingServiceTests : IDisposable
     private long _ticks;
 
     [Fact]
-    public void CollectionWorksWithProtectionDisabledAndPausingLeavesAGap()
+    public void LegacyPauseAndDisabledRemindersCannotStopCollection()
     {
         using var logger = Logger();
         var config = TestData.Config();
         config.GuardEnabled = false;
+        config.UsageTrackingEnabled = false;
         var service = Service(logger, config);
         service.Capture(GuardPhase.Ready);
         Advance(5);
         service.Capture(GuardPhase.Ready);
-        config.UsageTrackingEnabled = false;
-        service.ApplyConfig(config, GuardPhase.Ready);
-        Advance(3600);
-        config.UsageTrackingEnabled = true;
         service.ApplyConfig(config, GuardPhase.Ready);
         Advance(5);
+        service.Capture(GuardPhase.Ready);
+        Advance(5);
         service.Stop(GuardPhase.Ready);
-        var spans = service.Store.Read(_clock.UtcNow.AddHours(-2), _clock.UtcNow);
-        Assert.Equal(2, spans.Count);
-        Assert.Equal(10, spans.Sum(span => span.Duration.TotalSeconds));
+        var spans = service.Store.Read(_clock.UtcNow.AddMinutes(-1), _clock.UtcNow);
+        Assert.Equal(15, spans.Sum(span => span.Duration.TotalSeconds));
+    }
+
+    [Fact]
+    public void QuietHoursDoNotInterruptStatistics()
+    {
+        using var logger = Logger();
+        var local = TimeZoneInfo.ConvertTime(_clock.UtcNow, TimeZoneInfo.Local);
+        var config = TestData.Config();
+        config.NightStart = TimeOnly.FromDateTime(local.DateTime.AddHours(-1));
+        config.NightEnd = TimeOnly.FromDateTime(local.DateTime.AddHours(1));
+        var service = Service(logger, config);
+        service.Capture(GuardPhase.Working);
+        Advance(5);
+        service.Stop(GuardPhase.Working);
+        var spans = service.Store.Read(_clock.UtcNow.AddMinutes(-1), _clock.UtcNow);
+        Assert.Single(spans);
+        Assert.True(spans[0].IsNightWindow);
+        Assert.Equal("code.exe", spans[0].Application);
+        Assert.Equal(5, spans[0].Duration.TotalSeconds);
     }
 
     [Fact]
@@ -84,16 +101,13 @@ public sealed class UsageTrackingServiceTests : IDisposable
     }
 
     [Fact]
-    public void OldConfigurationGetsDefaultsAndPrivacyPauseNeedsNoChallenge()
+    public void OldConfigurationNormalizesToContinuousRecordingWithoutNightBlocking()
     {
-        var old = JsonSerializer.Deserialize<GuardConfig>("{\"SchemaVersion\":1,\"WorkMinutes\":90}")!;
+        var old = JsonSerializer.Deserialize<GuardConfig>("{\"SchemaVersion\":1,\"NightModeEnabled\":true,\"UsageTrackingEnabled\":false}")!;
+        old.Normalize();
         Assert.True(old.UsageTrackingEnabled);
+        Assert.False(old.NightModeEnabled);
         Assert.Equal(5, old.UsageIdleMinutes);
-        var current = TestData.Config();
-        var candidate = current.Clone();
-        candidate.UsageTrackingEnabled = false;
-        candidate.UsageIdleMinutes = 1;
-        Assert.Equal(ChallengeKind.None, ProtectionPolicy.RequiredChallenge(current, candidate));
     }
 
     [Fact]

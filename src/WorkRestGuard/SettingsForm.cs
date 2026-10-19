@@ -25,15 +25,8 @@ internal sealed class SettingsForm : Form
         Maximum = 60,
         Dock = DockStyle.Fill
     };
-    private readonly CheckBox _nightMode = new() { AutoSize = true };
     private readonly DateTimePicker _nightStart = CreateTimePicker();
     private readonly DateTimePicker _nightEnd = CreateTimePicker();
-    private readonly CheckedListBox _nightDays = new()
-    {
-        CheckOnClick = true,
-        Height = 116,
-        Dock = DockStyle.Fill
-    };
     private readonly ComboBox _language = new()
     {
         DropDownStyle = ComboBoxStyle.DropDownList,
@@ -41,7 +34,6 @@ internal sealed class SettingsForm : Form
     };
     private readonly CheckBox _startup = new() { AutoSize = true };
     private readonly CheckBox _enabled = new() { AutoSize = true };
-    private readonly CheckBox _usageEnabled = new() { AutoSize = true };
     private readonly NumericUpDown _usageIdleMinutes = new() { Minimum = 1, Maximum = 60, Dock = DockStyle.Fill };
     private readonly TabPage? _statisticsPage;
     private readonly DataGridView _historyGrid = new();
@@ -128,12 +120,6 @@ internal sealed class SettingsForm : Form
 
     internal bool StartBreakRequested { get; private set; }
 
-    internal void UpdateUsageTracking(bool enabled)
-    {
-        _usageEnabled.Checked = enabled;
-        _statisticsPage?.Controls.OfType<StatisticsControl>().First().RefreshReport();
-    }
-
     internal void ShowStatistics()
     {
         if (_statisticsPage is not null)
@@ -165,29 +151,8 @@ internal sealed class SettingsForm : Form
 
         _workMinutes.Value = Math.Clamp(_current.WorkMinutes, 15, 240);
         _breakMinutes.Value = Math.Clamp(_current.BreakMinutes, 5, 60);
-        _nightMode.Checked = _current.NightModeEnabled;
-        _nightMode.Text = UiText.Get(_languageCode, TextKey.NightMode);
         _nightStart.Value = DateTime.Today.Add(_current.NightStart.ToTimeSpan());
         _nightEnd.Value = DateTime.Today.Add(_current.NightEnd.ToTimeSpan());
-
-        var culture = UiText.Culture(_languageCode);
-        var orderedDays = new[]
-        {
-            DayOfWeek.Monday,
-            DayOfWeek.Tuesday,
-            DayOfWeek.Wednesday,
-            DayOfWeek.Thursday,
-            DayOfWeek.Friday,
-            DayOfWeek.Saturday,
-            DayOfWeek.Sunday
-        };
-        foreach (var day in orderedDays)
-        {
-            var item = new DayOption(
-                day,
-                culture.DateTimeFormat.GetDayName(day));
-            _nightDays.Items.Add(item, _current.NightDays.Contains(day));
-        }
 
         _language.Items.Add(new LanguageOption("uk", "Українська"));
         _language.Items.Add(new LanguageOption("en", "English"));
@@ -196,13 +161,15 @@ internal sealed class SettingsForm : Form
         _startup.Text = UiText.Get(_languageCode, TextKey.StartWithWindows);
         _enabled.Checked = _current.GuardEnabled;
         _enabled.Text = UiText.Get(_languageCode, TextKey.GuardEnabled);
-        _usageEnabled.Checked = _current.UsageTrackingEnabled;
-        _usageEnabled.Text = UsageText.Pick(_languageCode,
-            "Збирати локальну статистику часу в програмах", "Record local application usage statistics");
-        _usageEnabled.AccessibleName = _usageEnabled.Text;
         _usageIdleMinutes.Value = _current.UsageIdleMinutes;
         _usageIdleMinutes.AccessibleName = UsageText.Pick(_languageCode,
             "Без вводу після, хвилин", "No input threshold, minutes");
+        _monitor.AccessibleName = UiText.Get(_languageCode, TextKey.ProtectedMonitor);
+        _workMinutes.AccessibleName = UiText.Get(_languageCode, TextKey.WorkMinutes);
+        _breakMinutes.AccessibleName = UiText.Get(_languageCode, TextKey.BreakMinutes);
+        _language.AccessibleName = UiText.Get(_languageCode, TextKey.Language);
+        _startup.AccessibleName = _startup.Text;
+        _enabled.AccessibleName = _enabled.Text;
     }
 
     private Control BuildSettingsPage()
@@ -305,15 +272,11 @@ internal sealed class SettingsForm : Form
         layout.Controls.Add(_workMinutes);
         layout.Controls.Add(CreateLabel(UiText.Get(_languageCode, TextKey.BreakMinutes)));
         layout.Controls.Add(_breakMinutes);
-        layout.Controls.Add(_nightMode);
         layout.Controls.Add(timeRow);
-        layout.Controls.Add(CreateLabel(UiText.Get(_languageCode, TextKey.NightDays)));
-        layout.Controls.Add(_nightDays);
         layout.Controls.Add(CreateLabel(UiText.Get(_languageCode, TextKey.Language)));
         layout.Controls.Add(_language);
         layout.Controls.Add(_startup);
         layout.Controls.Add(_enabled);
-        layout.Controls.Add(_usageEnabled);
         layout.Controls.Add(CreateLabel(_usageIdleMinutes.AccessibleName ?? string.Empty));
         layout.Controls.Add(_usageIdleMinutes);
         layout.Controls.Add(actions);
@@ -554,7 +517,7 @@ internal sealed class SettingsForm : Form
 
         var start = TimeOnly.FromDateTime(_nightStart.Value);
         var end = TimeOnly.FromDateTime(_nightEnd.Value);
-        if (_nightMode.Checked && start == end)
+        if (start == end)
         {
             MessageBox.Show(
                 this,
@@ -571,30 +534,17 @@ internal sealed class SettingsForm : Form
             ProtectedMonitor = MonitorIdentity.FromDescriptor(selectedMonitor),
             WorkMinutes = (int)_workMinutes.Value,
             BreakMinutes = (int)_breakMinutes.Value,
-            NightModeEnabled = _nightMode.Checked,
+            NightModeEnabled = false,
             NightStart = start,
             NightEnd = end,
-            NightDays = _nightDays.CheckedItems
-                .OfType<DayOption>()
-                .Select(option => option.Day)
-                .ToList(),
+            NightDays = _current.NightDays.ToList(),
             LanguageCode = (_language.SelectedItem as LanguageOption)?.Code ?? "uk",
             LaunchAtSignIn = _startup.Checked,
             GuardEnabled = _enabled.Checked,
-            UsageTrackingEnabled = _usageEnabled.Checked,
+            UsageTrackingEnabled = true,
             UsageIdleMinutes = (int)_usageIdleMinutes.Value
         };
         candidate.Normalize();
-
-        var challenge = ProtectionPolicy.RequiredChallenge(_current, candidate);
-        if (challenge != ChallengeKind.None)
-        {
-            using var challengeForm = new ChallengeForm(challenge, _languageCode);
-            if (challengeForm.ShowDialog(this) != DialogResult.OK)
-            {
-                return;
-            }
-        }
 
         ResultConfig = candidate;
         StartBreakRequested = startBreak;
@@ -613,6 +563,7 @@ internal sealed class SettingsForm : Form
 
     private Control CreateLabeledControl(string label, Control control)
     {
+        control.AccessibleName = label;
         var host = new TableLayoutPanel
         {
             ColumnCount = 1,
@@ -643,11 +594,6 @@ internal sealed class SettingsForm : Form
         row.Controls.Add(left, 0, 0);
         row.Controls.Add(right, 1, 0);
         return row;
-    }
-
-    private sealed record DayOption(DayOfWeek Day, string DisplayName)
-    {
-        public override string ToString() => DisplayName;
     }
 
     private sealed record LanguageOption(string Code, string DisplayName)

@@ -27,7 +27,7 @@ internal sealed class UsageTrackingService
         _source = source ?? new WindowsUsageSource();
         _ticks = ticks ?? (() => Environment.TickCount64);
         SafeMode = safeMode;
-        _enabled = !safeMode && config.UsageTrackingEnabled;
+        _enabled = !safeMode;
     }
 
     internal UsageStore Store { get; }
@@ -42,7 +42,7 @@ internal sealed class UsageTrackingService
         _tracker.Reset();
         _lastSample = null;
         _config = config.Clone();
-        _enabled = !SafeMode && config.UsageTrackingEnabled;
+        _enabled = !SafeMode;
         Capture(phase, force: true);
     }
 
@@ -82,7 +82,7 @@ internal sealed class UsageTrackingService
                 : _locked ? new UsageSnapshot(UsageKind.Locked, null)
                 : _source.Capture(_config.UsageIdleMinutes);
             var now = _clock.UtcNow;
-            var night = new ScheduleResolver().GetActiveNightWindow(now, _config) is not null;
+            var night = TimerPolicy.IsQuietTime(now, _config);
             var span = _tracker.Observe(new UsageObservation(
                 now, ticks, snapshot.Kind, snapshot.Application, phase, night));
             if (span is not null)

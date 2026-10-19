@@ -12,12 +12,10 @@ internal sealed class StatusTimerController : IDisposable
         string languageCode,
         DateTimeOffset nowUtc)
     {
-        if (view.ShowOverlay ||
-            view.DeadlineUtc is null ||
+        if (view.DeadlineUtc is null ||
             view.Phase is not (
                 GuardPhase.Working or
-                GuardPhase.DaySnoozed or
-                GuardPhase.NightGrace))
+                GuardPhase.DayResting))
         {
             Hide();
             return;
@@ -60,12 +58,16 @@ internal sealed class StatusTimerController : IDisposable
     internal void Tick(
         GuardViewState view,
         MonitorDescriptor monitor,
+        string languageCode,
         DateTimeOffset nowUtc)
     {
-        if (_timer is null ||
-            _timer.IsDisposed ||
-            view.ShowOverlay ||
-            view.DeadlineUtc is null)
+        if (_timer is null || _timer.IsDisposed)
+        {
+            Update(view, monitor, languageCode, nowUtc);
+            return;
+        }
+
+        if (view.DeadlineUtc is null)
         {
             return;
         }

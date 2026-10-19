@@ -8,9 +8,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WorkRestGuard</AssemblyName>
     <RootNamespace>WorkRestGuard</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Yurii Basiuk</Authors>
-    <Description>A calm, firm Windows break and night-work guard for one monitor.</Description>
+    <Description>Local Windows time statistics with gentle rest reminders.</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

@@ -2,274 +2,148 @@ namespace WorkRestGuard.Tests;
 
 public sealed class GuardEngineTests
 {
-    [Fact]
-    public void FirstInputStartsNinetyMinuteWorkCycle()
-    {
-        var start = Utc(2026, 7, 20, 8, 0);
-        var (engine, clock, _) = CreateEngine(start);
-        engine.Initialize();
-
-        engine.Tick(inputChanged: true);
-
-        Assert.Equal(GuardPhase.Working, engine.State.Phase);
-        Assert.Equal(start.AddMinutes(90), engine.State.WorkDeadlineUtc);
-        Assert.Equal(start.AddMinutes(90), engine.View.DeadlineUtc);
-        Assert.False(engine.View.ShowOverlay);
-        Assert.Equal(start, clock.UtcNow);
-    }
+    private static readonly DateTimeOffset Start = new(2026, 10, 19, 19, 30, 0, TimeSpan.Zero);
 
     [Fact]
-    public void HeartbeatPersistenceDoesNotChangeTheRenderedView()
+    public void FirstInputStartsWorkAndDeadlineBecomesOnlyARestReminder()
     {
-        var (engine, clock, _) = CreateEngine(Utc(2026, 7, 20, 8, 0));
-        engine.Initialize();
-        engine.Tick(inputChanged: true);
-        var beforeHeartbeat = engine.View;
-
-        clock.Advance(TimeSpan.FromSeconds(30));
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(beforeHeartbeat, engine.View);
-    }
-
-    [Fact]
-    public void DaySnoozeCanBeUsedOnlyOnceAndReturnsToFreshBreak()
-    {
-        var (engine, clock, events) = CreateEngine(Utc(2026, 7, 20, 8, 0));
-        engine.Initialize();
-        engine.Tick(inputChanged: true);
-        clock.Advance(TimeSpan.FromMinutes(90));
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.DayResting, engine.State.Phase);
-        Assert.True(engine.View.DaySnoozeAvailable);
-        Assert.True(engine.SnoozeDay(15));
-        Assert.False(engine.SnoozeDay(5));
-        Assert.Equal(GuardPhase.DaySnoozed, engine.State.Phase);
-
-        clock.Advance(TimeSpan.FromMinutes(15));
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.DayResting, engine.State.Phase);
-        Assert.Equal(clock.UtcNow.AddMinutes(15), engine.State.DayDeadlineUtc);
-        Assert.False(engine.View.DaySnoozeAvailable);
-
-        clock.Advance(TimeSpan.FromMinutes(15));
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
-        Assert.Contains(events, item => item.Type == GuardEventType.DayBreakCompleted);
-        Assert.Single(events, item => item.Type == GuardEventType.DaySnoozed);
-    }
-
-    [Fact]
-    public void ExactDayOverrideStartsNewWorkCycle()
-    {
-        var (engine, clock, events) = CreateEngine(Utc(2026, 7, 20, 8, 0));
-        engine.Initialize();
-        Assert.True(engine.StartManualBreak());
-
-        Assert.True(engine.SkipDayBreak());
-
-        Assert.Equal(GuardPhase.Working, engine.State.Phase);
-        Assert.Equal(clock.UtcNow.AddMinutes(90), engine.State.WorkDeadlineUtc);
-        Assert.Contains(events, item => item.Type == GuardEventType.DayBreakSkipped);
-    }
-
-    [Fact]
-    public void NightModePreemptsActiveDayCycle()
-    {
-        var (engine, clock, _) = CreateEngine(Utc(2026, 7, 20, 19, 30));
-        engine.Initialize();
-        engine.Tick(inputChanged: true);
-
-        clock.UtcNow = Utc(2026, 7, 20, 20, 0);
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.NightLocked, engine.State.Phase);
-        Assert.Null(engine.State.WorkDeadlineUtc);
-        Assert.Equal(OverlayKind.Night, engine.View.OverlayKind);
-        Assert.True(engine.View.NightGraceAvailable);
-    }
-
-    [Fact]
-    public void NightGraceIsTenMinutesAndCanBeUsedOnlyOnce()
-    {
-        var (engine, clock, events) = CreateEngine(Utc(2026, 7, 20, 21, 0));
-        engine.Initialize();
-
-        Assert.True(engine.UseNightGrace());
-        Assert.False(engine.UseNightGrace());
-        Assert.Equal(GuardPhase.NightGrace, engine.State.Phase);
-        Assert.Equal(clock.UtcNow.AddMinutes(10), engine.State.NightGraceDeadlineUtc);
-
-        clock.Advance(TimeSpan.FromMinutes(10));
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.NightLocked, engine.State.Phase);
-        Assert.False(engine.View.NightGraceAvailable);
-        Assert.Single(events, item => item.Type == GuardEventType.NightGraceUsed);
-    }
-
-    [Fact]
-    public void NightOverridePersistsForWindowAndStartsNewDayCycle()
-    {
-        var (engine, clock, events) = CreateEngine(Utc(2026, 7, 20, 21, 0));
-        engine.Initialize();
-
-        Assert.True(engine.OverrideNight());
-
-        Assert.Equal(GuardPhase.Working, engine.State.Phase);
-        Assert.Equal("2026-07-20", engine.State.NightOverrideScheduleId);
-        Assert.Equal(clock.UtcNow.AddMinutes(90), engine.State.WorkDeadlineUtc);
-
-        clock.Advance(TimeSpan.FromMinutes(30));
-        engine.Tick(inputChanged: false);
-        Assert.Equal(GuardPhase.Working, engine.State.Phase);
-        Assert.Contains(events, item => item.Type == GuardEventType.NightOverridden);
-    }
-
-    [Fact]
-    public void NaturalNightCompletionReturnsToReadyAtSix()
-    {
-        var (engine, clock, events) = CreateEngine(Utc(2026, 7, 20, 23, 0));
-        engine.Initialize();
-
-        clock.UtcNow = Utc(2026, 7, 21, 6, 0);
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
-        Assert.Contains(events, item => item.Type == GuardEventType.NightCompleted);
-    }
-
-    [Fact]
-    public void DayCycleContinuesAcrossSixAfterNightOverride()
-    {
-        var (engine, clock, _) = CreateEngine(Utc(2026, 7, 21, 5, 30));
-        engine.Initialize();
-        Assert.True(engine.OverrideNight());
-        var deadline = engine.State.WorkDeadlineUtc;
-
-        clock.UtcNow = Utc(2026, 7, 21, 6, 0);
-        engine.Tick(inputChanged: false);
-
-        Assert.Equal(GuardPhase.Working, engine.State.Phase);
-        Assert.Equal(deadline, engine.State.WorkDeadlineUtc);
-        Assert.Null(engine.State.NightOverrideScheduleId);
-    }
-
-    [Fact]
-    public void RestartDuringNightRestoresLockAndGraceUsage()
-    {
-        var start = Utc(2026, 7, 20, 21, 0);
-        var (first, clock, _) = CreateEngine(start);
-        first.Initialize();
-        Assert.True(first.UseNightGrace());
-        var persisted = first.State;
-
-        clock.Advance(TimeSpan.FromMinutes(10));
-        var restored = new GuardEngine(
-            TestData.Config(),
-            persisted,
-            clock,
-            new ScheduleResolver(TimeZoneInfo.Utc));
-        restored.Initialize();
-
-        Assert.Equal(GuardPhase.NightLocked, restored.State.Phase);
-        Assert.True(restored.State.NightGraceUsed);
-        Assert.False(restored.View.NightGraceAvailable);
-    }
-
-    [Fact]
-    public void FifteenMinutesOfflineCompletesDayRest()
-    {
-        var start = Utc(2026, 7, 20, 8, 0);
-        var (first, clock, _) = CreateEngine(start);
-        first.Initialize();
-        Assert.True(first.StartManualBreak());
-        var persisted = first.State;
-
-        clock.Advance(TimeSpan.FromMinutes(15));
-        var restored = new GuardEngine(
-            TestData.Config(),
-            persisted,
-            clock,
-            new ScheduleResolver(TimeZoneInfo.Utc));
-        restored.Initialize();
-
-        Assert.Equal(GuardPhase.Ready, restored.State.Phase);
-    }
-
-    [Fact]
-    public void OfflineRestThresholdIsAlwaysFifteenMinutes()
-    {
-        var start = Utc(2026, 7, 20, 8, 0);
-        var longBreakConfig = TestData.Config();
-        longBreakConfig.BreakMinutes = 60;
-        var clock = new FakeClock(start);
-        var first = new GuardEngine(
-            longBreakConfig,
-            new GuardRuntimeState(),
-            clock,
-            new ScheduleResolver(TimeZoneInfo.Utc));
-        first.Initialize();
-        first.Tick(inputChanged: true);
-        var persisted = first.State;
-
-        clock.Advance(TimeSpan.FromMinutes(14));
-        var tooSoon = new GuardEngine(
-            longBreakConfig,
-            persisted.Clone(),
-            clock,
-            new ScheduleResolver(TimeZoneInfo.Utc));
-        tooSoon.Initialize();
-        Assert.Equal(GuardPhase.Working, tooSoon.State.Phase);
-
-        clock.Advance(TimeSpan.FromMinutes(1));
-        var rested = new GuardEngine(
-            longBreakConfig,
-            persisted.Clone(),
-            clock,
-            new ScheduleResolver(TimeZoneInfo.Utc));
-        rested.Initialize();
-        Assert.Equal(GuardPhase.Ready, rested.State.Phase);
-    }
-
-    [Fact]
-    public void DisablingNightProtectionRecordsAnInterruption()
-    {
-        var (engine, _, events) = CreateEngine(Utc(2026, 7, 20, 21, 0));
-        engine.Initialize();
-        var disabled = TestData.Config();
-        disabled.NightModeEnabled = false;
-
-        engine.ApplyConfig(disabled);
-
-        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
-        Assert.Contains(
-            events,
-            item =>
-                item.Type == GuardEventType.NightInterrupted &&
-                item.NightScheduleId == "2026-07-20");
-        Assert.DoesNotContain(events, item => item.Type == GuardEventType.NightCompleted);
-    }
-
-    private static (
-        GuardEngine Engine,
-        FakeClock Clock,
-        List<GuardEvent> Events) CreateEngine(DateTimeOffset now)
-    {
-        var clock = new FakeClock(now);
-        var engine = new GuardEngine(
-            TestData.Config(),
-            new GuardRuntimeState(),
-            clock,
-            new ScheduleResolver(TimeZoneInfo.Utc));
+        var clock = new FakeClock(Start);
+        var engine = new GuardEngine(TestData.Config(), new(), clock);
         var events = new List<GuardEvent>();
         engine.EventCreated += events.Add;
-        return (engine, clock, events);
+        engine.Initialize();
+        engine.Tick(false);
+        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
+        engine.Tick(true);
+        Assert.Equal(Start.AddMinutes(90), engine.View.DeadlineUtc);
+        clock.Advance(TimeSpan.FromMinutes(90));
+        engine.Tick(true);
+        Assert.Equal(GuardPhase.DayResting, engine.State.Phase);
+        Assert.Equal(clock.UtcNow.AddMinutes(15), engine.View.DeadlineUtc);
+        Assert.False(engine.View.ShowOverlay);
+        Assert.False(engine.View.DaySnoozeAvailable);
+        Assert.False(engine.View.NightGraceAvailable);
+        Assert.Null(engine.View.OverlayKind);
+        clock.Advance(TimeSpan.FromMinutes(15));
+        engine.Tick(true);
+        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
+        Assert.Single(events, e => e.Type == GuardEventType.DayBreakCompleted);
+        engine.Tick(true);
+        Assert.Equal(GuardPhase.Working, engine.State.Phase);
     }
 
-    private static DateTimeOffset Utc(int year, int month, int day, int hour, int minute) =>
-        new(year, month, day, hour, minute, 0, TimeSpan.Zero);
+    [Fact]
+    public void LegacyNightConfigurationCannotPreemptWork()
+    {
+        var clock = new FakeClock(Start);
+        var engine = new GuardEngine(TestData.Config(), new(), clock);
+        engine.Initialize();
+        engine.Tick(true);
+        var deadline = engine.View.DeadlineUtc;
+        clock.Advance(TimeSpan.FromMinutes(30));
+        engine.Tick(false);
+        Assert.Equal(GuardPhase.Working, engine.State.Phase);
+        Assert.Equal(deadline, engine.View.DeadlineUtc);
+        Assert.False(engine.View.ShowOverlay);
+    }
+
+    [Theory]
+    [InlineData(GuardPhase.NightLocked)]
+    [InlineData(GuardPhase.NightGrace)]
+    [InlineData(GuardPhase.DaySnoozed)]
+    public void LegacyStateRecoversToReadyAndClearsNightFields(GuardPhase phase)
+    {
+        var state = new GuardRuntimeState
+        {
+            Phase = phase,
+            LastHeartbeatUtc = Start,
+            NightScheduleId = "old",
+            NightEndUtc = Start.AddHours(10),
+            NightGraceUsed = true,
+            NightOverrideScheduleId = "old",
+            DaySnoozeUsed = true
+        };
+        var engine = new GuardEngine(TestData.Config(), state, new FakeClock(Start));
+        engine.Initialize();
+        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
+        Assert.Null(engine.State.NightScheduleId);
+        Assert.Null(engine.State.NightEndUtc);
+        Assert.False(engine.State.NightGraceUsed);
+        Assert.False(engine.State.DaySnoozeUsed);
+        Assert.Null(engine.State.NightOverrideScheduleId);
+        Assert.False(engine.View.ShowOverlay);
+    }
+
+    [Theory]
+    [InlineData(14, GuardPhase.Working)]
+    [InlineData(15, GuardPhase.Ready)]
+    public void RestartPreservesShortWorkCycleAndResetsAfterLongAbsence(int minutes, GuardPhase expected)
+    {
+        var clock = new FakeClock(Start);
+        var engine = new GuardEngine(TestData.Config(), new(), clock);
+        engine.Initialize();
+        engine.Tick(true);
+        var saved = engine.State;
+        clock.Advance(TimeSpan.FromMinutes(minutes));
+        var restored = new GuardEngine(TestData.Config(), saved, clock);
+        restored.Initialize();
+        Assert.Equal(expected, restored.State.Phase);
+        Assert.Equal(GuardPhase.Working, saved.Phase);
+    }
+
+    [Theory]
+    [InlineData(GuardPhase.Working)]
+    [InlineData(GuardPhase.DayResting)]
+    public void MissingDeadlineRecoversToReady(GuardPhase phase)
+    {
+        var engine = new GuardEngine(TestData.Config(), new() { Phase = phase, LastHeartbeatUtc = Start }, new FakeClock(Start));
+        engine.Initialize();
+        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
+    }
+
+    [Fact]
+    public void ManualRestAndDisablingRemindersNeverRequestABlocker()
+    {
+        var config = TestData.Config();
+        var engine = new GuardEngine(config, new(), new FakeClock(Start));
+        engine.Initialize();
+        Assert.True(engine.StartManualBreak());
+        Assert.Equal(GuardPhase.DayResting, engine.State.Phase);
+        Assert.False(engine.View.ShowOverlay);
+        config.GuardEnabled = false;
+        engine.ApplyConfig(config);
+        Assert.False(engine.StartManualBreak());
+        engine.Tick(true);
+        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
+        Assert.Null(engine.View.DeadlineUtc);
+    }
+
+    [Fact]
+    public void ClockRollbackResetsAndPersistsTheTimer()
+    {
+        var clock = new FakeClock(Start);
+        var engine = new GuardEngine(TestData.Config(), new(), clock);
+        engine.Initialize();
+        engine.Tick(true);
+        var changes = 0;
+        engine.StateChanged += _ => changes++;
+        clock.Advance(TimeSpan.FromMinutes(-5));
+        engine.Tick(false);
+        Assert.Equal(GuardPhase.Ready, engine.State.Phase);
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public void HeartbeatDoesNotChangeTheRenderedView()
+    {
+        var clock = new FakeClock(Start);
+        var engine = new GuardEngine(TestData.Config(), new(), clock);
+        engine.Initialize();
+        engine.Tick(true);
+        var view = engine.View;
+        clock.Advance(TimeSpan.FromSeconds(30));
+        engine.Tick(false);
+        Assert.Equal(view, engine.View);
+        Assert.Equal(clock.UtcNow, engine.State.LastHeartbeatUtc);
+    }
 }
